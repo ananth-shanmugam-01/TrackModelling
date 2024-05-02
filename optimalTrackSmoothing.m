@@ -1,4 +1,5 @@
-%% rocket landing - Volkl, Muehlmeier
+%% Optimal Smoothing Track Model
+
 clear; clc;
 import casadi.*
 
@@ -23,22 +24,47 @@ measData = struct;
 measData.dS = sqrt(gradient(measData.x).^2 + gradient(measData.y).^2);
 measData.sLap = cumtrapz(measData.dS);
 
-% Curvature calculation
-x_dot   = gradient(measData.x)./gradient(measData.sLap);
-x_ddot  = gradient(x_dot);
-y_dot   = gradient(measData.y)./gradient(measData.sLap);
-y_ddot  = gradient(y_dot);
+% HyperSample x,y, sLap
+sLap_fine = linspace(0,measData.sLap(end),6000);
+
+measData.x = interp1(measData.sLap,measData.x,sLap_fine,"makima");
+measData.y = interp1(measData.sLap,measData.y,sLap_fine,"makima");
+measData.sLap = sLap_fine;
+
+sLap_coarse = linspace(0,measData.sLap(end),1000);
+
+% Splines
+x_spline = spline(measData.sLap, measData.x);
+x_der_spline = fnder(x_spline,1);
+x_der_der_spline = fnder(x_spline,2);
+
+y_spline = spline(measData.sLap, measData.y);
+y_der_spline = fnder(y_spline,1);
+y_der_der_spline = fnder(y_spline,2);
+
+x_dot = ppval(x_der_spline,sLap_coarse);
+x_ddot = ppval(x_der_der_spline, sLap_coarse);
+y_dot = ppval(y_der_spline,sLap_coarse);
+y_ddot = ppval(y_der_der_spline, sLap_coarse);
 
 measData.Curv = (x_dot.* y_ddot - x_ddot.*y_dot)./( x_dot.^2 + y_dot.^2).^1.5; 
 
-% Trapezoidal Integration for track heading angle
+measData.sLap = sLap_coarse;
+measData.x = interp1(sLap_fine,measData.x,sLap_coarse,"makima");
+measData.y = interp1(sLap_fine,measData.y,sLap_coarse,"makima");
+
+% Spline Smoothing
+
+measData.Curv = csaps(measData.sLap,measData.Curv,0.3,measData.sLap);
 
 measData.theta = cumtrapz(measData.sLap, measData.Curv);
 measData.heading_origin = atan(y_dot(1)/x_dot(1));
-
-measData.theta = measData.theta - measData.heading_origin;
-
+measData.theta = measData.theta + measData.heading_origin;
 %% Model Dynamics
+
+
+smooth_weight   = 1;
+
 
 % Declare model decision variables
 % States
@@ -91,7 +117,7 @@ tau = collocation_points(d, 'legendre');
 
 % distance horizon, Control discretization
 s = measData.sLap(end);        % m
-N = 300;              % number of elements - phases are within this element
+N = 500;              % number of elements - phases are within this element
 h = s/N;              % mesh size
 
 % Initial Element Discretisation
@@ -188,8 +214,6 @@ track_y     = interp1(measData.sLap, measData.y, dist_mesh,'pchip');
 track_curv  = interp1(measData.sLap, measData.Curv, dist_mesh,'pchip');
 track_theta = interp1(measData.sLap, measData.theta, dist_mesh, 'pchip');
 
-smooth_weight   = 0.002;
-
 opti.set_value(Gs(1,:), track_x);
 opti.set_value(Gs(2,:), track_y);
 opti.set_value(Gs(3,:), smooth_weight);
@@ -200,9 +224,8 @@ opti.subject_to(-3*pi <= Xs(2,:) <= 3*pi);
 
 % Initial & Terminal Constraints
 % States
-stateNames = {'Curv'; 'theta'; 'xi'; 'yi'};
-opti.subject_to(Xs(1,1)     == Xs(1,end)); 
-opti.subject_to(Xs(2,1)     == Xs(2,end)); 
+% opti.subject_to(Xs(1,1)     == Xs(1,end)); % Initial and Final Curvatures aligned
+% opti.subject_to(Xs(2,1)     == Xs(2,end)); % Initial and Final Heading Angles aligned
 opti.subject_to(Xs(3,1)     == track_x(1)); 
 opti.subject_to(Xs(3,end)   == track_x(end)); 
 opti.subject_to(Xs(4,1)     == track_y(1));
@@ -212,8 +235,8 @@ opti.subject_to(Xs(4,end)   == track_y(end));
 
 % % ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 % Initial Conditions
-opti.set_initial(Xs(1,:), track_curv  .*3);
-opti.set_initial(Xs(2,:), track_theta .*2);
+opti.set_initial(Xs(1,:), track_curv);
+opti.set_initial(Xs(2,:), track_theta);
 opti.set_initial(Xs(3,:), track_x);
 opti.set_initial(Xs(4,:), track_y);
 
