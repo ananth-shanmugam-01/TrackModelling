@@ -4,66 +4,17 @@ clear; clc;
 import casadi.*
 
 %% Load Track Data File
+
 load('C:\Users\admin\Desktop\GitHub\QSS-LTS\dataFiles\230722_Endurance_lap2.mat')
 
-lat_pos     = smoothdata(data_lap2.GPS_Latitude_deg,"gaussian","SmoothingFactor",0.001);
-long_pos    = smoothdata(data_lap2.GPS_Longitude_deg,"gaussian","SmoothingFactor",0.001);
-alt_pos     = data_lap2.GPS_Altitude_m;   
+trackCoordinates.latitude_deg   = data_lap2.GPS_Latitude_deg;
+trackCoordinates.longitude_deg  = data_lap2.GPS_Longitude_deg;
+trackCoordinates.altitude_m     = data_lap2.GPS_Altitude_m;
 
-lat_origin  = lat_pos(1);
-long_origin = long_pos(1);
-alt_origin  = alt_pos(1);
-
-origin = [lat_origin, long_origin, alt_origin];
-
-measData = struct;
-
-[measData.x, measData.y, measData.z] = latlon2local(lat_pos, long_pos, alt_pos, origin);
-
-% sLap calculation from absolute distance
-measData.dS = sqrt(gradient(measData.x).^2 + gradient(measData.y).^2);
-measData.sLap = cumtrapz(measData.dS);
-
-% HyperSample x,y, sLap
-sLap_fine = linspace(0,measData.sLap(end),6000);
-
-measData.x = interp1(measData.sLap,measData.x,sLap_fine,"makima");
-measData.y = interp1(measData.sLap,measData.y,sLap_fine,"makima");
-measData.sLap = sLap_fine;
-
-sLap_coarse = linspace(0,measData.sLap(end),1000);
-
-% Splines
-x_spline = spline(measData.sLap, measData.x);
-x_der_spline = fnder(x_spline,1);
-x_der_der_spline = fnder(x_spline,2);
-
-y_spline = spline(measData.sLap, measData.y);
-y_der_spline = fnder(y_spline,1);
-y_der_der_spline = fnder(y_spline,2);
-
-x_dot = ppval(x_der_spline,sLap_coarse);
-x_ddot = ppval(x_der_der_spline, sLap_coarse);
-y_dot = ppval(y_der_spline,sLap_coarse);
-y_ddot = ppval(y_der_der_spline, sLap_coarse);
-
-measData.Curv = (x_dot.* y_ddot - x_ddot.*y_dot)./( x_dot.^2 + y_dot.^2).^1.5; 
-
-measData.sLap = sLap_coarse;
-measData.x = interp1(sLap_fine,measData.x,sLap_coarse,"makima");
-measData.y = interp1(sLap_fine,measData.y,sLap_coarse,"makima");
-
-% Spline Smoothing
-
-measData.Curv = csaps(measData.sLap,measData.Curv,0.3,measData.sLap);
-
-measData.theta = cumtrapz(measData.sLap, measData.Curv);
-measData.heading_origin = atan(y_dot(1)/x_dot(1));
-measData.theta = measData.theta + measData.heading_origin;
+measData = initialiseTrackData(trackCoordinates);
 %% Model Dynamics
 
-
-smooth_weight   = 1;
+smooth_weight   = 2;
 
 
 % Declare model decision variables
@@ -79,13 +30,13 @@ num_x = numel(states);
 % Controls
 u           = SX.sym('u');      % Curvature Smoothing Factor
 controls    = [u];
-controlNames = {'u'};
+controlNames= {'u'};
 num_u = numel(controls);
 
 % Parameters
-xc           = SX.sym('xc');
-yc           = SX.sym('yc');
-c             = SX.sym('c'); % smoothing penalty
+xc          = SX.sym('xc');
+yc          = SX.sym('yc');
+c           = SX.sym('c'); % smoothing penalty
 parameters  = [xc; yc ; c];
 num_g       = numel(parameters);
 
