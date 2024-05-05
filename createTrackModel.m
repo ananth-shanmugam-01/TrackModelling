@@ -130,9 +130,11 @@ sol = opti.solve();
 %% Create Results Struct
 
 results = struct;
+Track = struct; % Save Track Model Specific Outputs
 
 for i = 1:states.num_x
     results.states.(states.names{i}) = opti.value(Xs(i,:));
+    Track.(states.names{i})          = opti.value(Xs(i,:));
 end
 
 for i = 1:controls.num_u
@@ -142,11 +144,14 @@ end
 for i = 1:parameters.num_g
     results.parameters.(parameters.names{i}) = opti.value(Gs(i,:));
 end
-results.mesh = settings.mesh;
 
+Track.sLap      = settings.mesh.meshPoints;
+
+results.mesh = settings.mesh;
 results.settings = settings;
 results.initSolution = initSolution;
 
+save('FSUK_2023.mat','Track')
 %% Plot results
 
 figure(1); clf
