@@ -5,7 +5,7 @@ import casadi.*
 
 %% Load Track Data File
 
-load('C:\Users\admin\Desktop\GitHub\QSS-LTS\dataFiles\230722_Endurance_lap2.mat')
+load("C:\Users\Ananth\Desktop\GitHub\DataFiles\Track\FS\230722_Endurance_lap2.mat")
 
 trackCoordinates = struct;
 trackCoordinates.latitude_deg   = data_lap2.GPS_Latitude_deg;
